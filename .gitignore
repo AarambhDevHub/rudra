@@ -1,0 +1,43 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/cmd/rudra/rudra
+
+# Test binary
+*.test
+
+# Output
+*.out
+*.prof
+*.trace
+
+# Dependency directories
+/vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+/bin/
+/dist/
+
+# Coverage
+coverage.txt
+coverage.html
+
+# Benchmarks
+benchmarks/results/*.prof
+
+# Claude Code
+.claude/
