@@ -26,11 +26,16 @@ type Options struct {
 	TLSCertFile string
 	TLSKeyFile  string
 
+	// Socket tuning
+	TCPNoDelay  bool
+	SOReusePort bool
+	TCPFastOpen bool
+
 	// Behavior
 	StrictRouting  bool
 	CaseSensitive  bool
 	UnescapeParams bool
-	TrustProxyIPs []string
+	TrustProxyIPs  []string
 }
 
 func defaultOptions() *Options {
@@ -47,6 +52,9 @@ func defaultOptions() *Options {
 		HTTP2IdleTimeout:          90 * time.Second,
 		StrictRouting:             false,
 		CaseSensitive:             false,
+		TCPNoDelay:                true,
+		SOReusePort:               false,
+		TCPFastOpen:               false,
 	}
 }
 
@@ -109,4 +117,22 @@ func WithTLS(certFile, keyFile string) Option {
 		o.TLSCertFile = certFile
 		o.TLSKeyFile = keyFile
 	}
+}
+
+// WithTCPNoDelay enables TCP_NODELAY on the listener socket (default: true).
+// Disables Nagle algorithm for lower latency on small responses.
+func WithTCPNoDelay(enabled bool) Option {
+	return func(o *Options) { o.TCPNoDelay = enabled }
+}
+
+// WithSOReusePort enables SO_REUSEPORT on the listener socket (Linux only).
+// Allows multiple processes to bind the same port for multi-core distribution.
+func WithSOReusePort(enabled bool) Option {
+	return func(o *Options) { o.SOReusePort = enabled }
+}
+
+// WithTCPFastOpen enables TCP_FASTOPEN on the listener socket (Linux 3.7+).
+// Enables 0-RTT connection establishment for supported clients.
+func WithTCPFastOpen(enabled bool) Option {
+	return func(o *Options) { o.TCPFastOpen = enabled }
 }

@@ -176,26 +176,34 @@
 
 ---
 
-## Phase 1 — Full HTTP/1.1 + Core Middleware (0.1.0 → 0.1.9)
+## Phase 1 — Full HTTP/1.1 + Core Middleware (0.1.0 → 0.1.9) 🔄 IN PROGRESS
 
 > Goal: Production-grade HTTP/1.1 with all essential middleware.
 > By `0.1.9`: deployable for real workloads.
+> **Status: 0.1.0 complete. 0.1.1–0.1.9 planned.**
 
 ---
 
-### `0.1.0` — HTTP/1.1 Hardening + Graceful Shutdown
+### `0.1.0` — HTTP/1.1 Hardening + Graceful Shutdown ✅
 
 **Deliverables:**
-- Custom TCP listener with `SO_REUSEPORT` + `TCP_NODELAY` (Linux)
-- `Engine.RunListener(net.Listener)` — custom listener support
-- `core/signals.go` — `Engine.ListenForShutdown()` (SIGINT + SIGTERM)
-- `Engine.Shutdown(ctx context.Context) error` — graceful drain
-- `ShutdownTimeout` option (default 30s)
-- `Engine.RunTLS(addr, cert, key)` — HTTPS support (TLS 1.2+ hardened)
-- TLS cipher suite hardening per ARCHITECTURE §20.2
-- `examples/hello/main.go` updated with graceful shutdown pattern
+- Custom TCP listener with `SO_REUSEPORT` + `TCP_NODELAY` + `TCP_FASTOPEN` (Linux) ✅
+- `Engine.RunListener(net.Listener)` — custom listener support ✅
+- `core/signals.go` — `Engine.ListenForShutdown()` (SIGINT + SIGTERM) ✅
+- `Engine.Shutdown(ctx context.Context) error` — graceful drain (idempotent, race-free) ✅
+- `ShutdownTimeout` option (default 30s) ✅
+- `Engine.RunTLS(addr, cert, key)` — HTTPS with hardened AEAD cipher suites + session resumption ✅
+- TLS cipher suite hardening per ARCHITECTURE §20.2 ✅
+- `examples/hello/main.go` updated with graceful shutdown pattern ✅
+- `WithTCPNoDelay()`, `WithSOReusePort()`, `WithTCPFastOpen()` functional options ✅
+- Platform-specific build tags: `server_linux.go` / `server_other.go` ✅
+- Zero-allocation hot path preserved — all micro-benchmarks: 0 allocs/op ✅
 
-**Definition of Done:** `kill -SIGTERM` drains active connections. Zero dropped requests on clean shutdown.
+**Definition of Done:** `kill -SIGTERM` drains active connections. Zero dropped requests on clean shutdown. ✅
+
+**wrk benchmarks (4 threads, 100 conn, 10s, i5-1135G7):**
+- Static: **213,817 req/sec** @ 671µs avg latency
+- Param: **178,407 req/sec** @ 783µs avg latency
 
 ---
 
@@ -1287,8 +1295,8 @@
 
 | Milestone | Version Range | Theme                          |
 |-----------|---------------|--------------------------------|
-| Foundation| 0.0.1–0.0.9   | Engine, router, context, render|
-| HTTP/1.1  | 0.1.0–0.1.9   | Full HTTP/1.1 + core middleware|
+| Foundation| 0.0.1–0.0.9   | Engine, router, context, render| ✅
+| HTTP/1.1  | 0.1.0–0.1.9   | Full HTTP/1.1 + core middleware| 🔄
 | Binding   | 0.2.0–0.2.9   | Request binding + validation   |
 | HTTP/2    | 0.3.0–0.3.5   | TLS, h2c, server push          |
 | WebSocket | 0.4.0–0.4.6   | WS, hub, rooms, compression    |

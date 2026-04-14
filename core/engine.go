@@ -190,9 +190,15 @@ func (e *Engine) SetErrorHandler(fn errors.ErrorHandler) {
 }
 
 // Run starts the HTTP/1.1 server on the given address.
+// Uses a custom TCP listener with SO_REUSEPORT + TCP_NODELAY when enabled.
 func (e *Engine) Run(addr string) error {
+	ln, err := newTCPListener(addr, e.opts)
+	if err != nil {
+		return err
+	}
+
+	e.mu.Lock()
 	e.server = &http.Server{
-		Addr:              addr,
 		Handler:           e,
 		ReadTimeout:       e.opts.ReadTimeout,
 		WriteTimeout:      e.opts.WriteTimeout,
@@ -200,48 +206,76 @@ func (e *Engine) Run(addr string) error {
 		ReadHeaderTimeout: e.opts.ReadHeaderTimeout,
 		MaxHeaderBytes:    e.opts.MaxHeaderBytes,
 	}
+	e.mu.Unlock()
 
 	log.Printf("rudra: listening on %s", addr)
-	return e.server.ListenAndServe()
+	return e.server.Serve(ln)
 }
 
-// RunTLS starts the HTTPS server with HTTP/2 support.
+// RunTLS starts the HTTPS server with hardened TLS configuration.
+// Cipher suites are explicitly set to AEAD-only (AES-GCM + ChaCha20-Poly1305).
+// TLS 1.2 minimum. Session resumption enabled via session tickets.
 func (e *Engine) RunTLS(addr, certFile, keyFile string) error {
+	ln, err := newTCPListener(addr, e.opts)
+	if err != nil {
+		return err
+	}
+
 	tlsCfg := &tls.Config{
-		MinVersion:               tls.VersionTLS12,
-		PreferServerCipherSuites: true,
+		MinVersion: tls.VersionTLS12,
 		CurvePreferences: []tls.CurveID{
 			tls.X25519,
 			tls.CurveP256,
 		},
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+		},
+		SessionTicketsDisabled: false,
 	}
 
+	e.mu.Lock()
 	e.server = &http.Server{
-		Addr:         addr,
-		Handler:      e,
-		TLSConfig:    tlsCfg,
-		ReadTimeout:  e.opts.ReadTimeout,
-		WriteTimeout: e.opts.WriteTimeout,
-		IdleTimeout:  e.opts.IdleTimeout,
+		Handler:           e,
+		TLSConfig:         tlsCfg,
+		ReadTimeout:       e.opts.ReadTimeout,
+		WriteTimeout:      e.opts.WriteTimeout,
+		IdleTimeout:       e.opts.IdleTimeout,
+		ReadHeaderTimeout: e.opts.ReadHeaderTimeout,
+		MaxHeaderBytes:    e.opts.MaxHeaderBytes,
 	}
+	e.mu.Unlock()
 
 	log.Printf("rudra: listening on %s (TLS)", addr)
-	return e.server.ListenAndServeTLS(certFile, keyFile)
+	return e.server.ServeTLS(ln, certFile, keyFile)
 }
 
 // RunListener starts the server on a custom net.Listener.
 func (e *Engine) RunListener(l net.Listener) error {
+	e.mu.Lock()
 	e.server = &http.Server{Handler: e}
+	e.mu.Unlock()
 	return e.server.Serve(l)
 }
 
-// Shutdown performs a graceful shutdown.
+// Shutdown performs a graceful shutdown, draining active connections
+// within the configured ShutdownTimeout. Safe to call multiple times.
 func (e *Engine) Shutdown(ctx context.Context) error {
-	close(e.shutdownCh)
-	if e.server != nil {
-		return e.server.Shutdown(ctx)
-	}
-	return nil
+	var err error
+	e.once.Do(func() {
+		close(e.shutdownCh)
+		e.mu.RLock()
+		srv := e.server
+		e.mu.RUnlock()
+		if srv != nil {
+			err = srv.Shutdown(ctx)
+		}
+	})
+	return err
 }
 
 // Router returns the underlying router for advanced use.

@@ -8,8 +8,9 @@ import (
 	"syscall"
 )
 
-// ListenForShutdown blocks until SIGINT or SIGTERM is received,
-// then performs a graceful drain of active connections.
+// ListenForShutdown blocks until SIGINT or SIGTERM, then gracefully
+// drains active connections within ShutdownTimeout. This is the
+// recommended way to handle server lifecycle in production.
 func (e *Engine) ListenForShutdown() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)

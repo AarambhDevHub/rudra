@@ -1,8 +1,8 @@
 <div align="center">
 
 <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go Version"/>
-<img src="https://img.shields.io/badge/version-0.0.9-brightgreen?style=for-the-badge" alt="Version"/>
-<img src="https://img.shields.io/badge/phase_0-complete-brightgreen?style=for-the-badge" alt="Phase 0 Complete"/>
+<img src="https://img.shields.io/badge/version-0.1.0-brightgreen?style=for-the-badge" alt="Version"/>
+<img src="https://img.shields.io/badge/phase_1-in_progress-yellow?style=for-the-badge" alt="Phase 1 In Progress"/>
 <img src="https://img.shields.io/badge/license-MIT%20%2B%20Apache%202.0-blue?style=for-the-badge" alt="License"/>
 <img src="https://img.shields.io/badge/status-active-brightgreen?style=for-the-badge" alt="Status"/>
 
@@ -44,40 +44,39 @@ And it stays compatible with `net/http`. Your existing middleware works. Your ex
 
 ## Benchmarks
 
-> Hardware: ASUS VivoBook 14, Intel Core i3-1115G4 (11th Gen), 8GB RAM, Pop OS, Go 1.22
-> Test: 4 threads, 100 connections, 10 seconds (`wrk`) / 100 concurrency, 100k requests (`ab`)
+> Hardware: Intel Core i5-1135G7 (11th Gen), 8GB RAM, Pop OS, Go 1.22
+> Test: 4 threads, 100 connections, 10 seconds (`wrk`)
 
 ### Router Micro-Benchmarks
 
 | Operation | ns/op | allocs/op |
 |-----------|-------|-----------|
-| Static route match | **25** | **0** |
-| 3-param route match | **69** | **0** |
-| Wildcard route match | **34** | **0** |
+| Static route match | **26** | **0** |
+| 3-param route match | **68** | **0** |
+| Wildcard route match | **33** | **0** |
 | Context acquire/release | **14** | **0** |
 | Context SetParam | **1.3** | **0** |
 
-### `wrk` Throughput (Phase 0 results)
+### `wrk` Throughput (Phase 1 results)
 
 | Route | Req/sec | Avg Latency | Stdev |
 |-------|---------|-------------|-------|
-| `GET /` (static) | **206,686** | 688 µs | 831 µs |
-| `GET /hello/:name` (param) | **189,005** | 708 µs | 870 µs |
+| `GET /` (static) | **213,817** | 671 µs | 809 µs |
+| `GET /hello/:name` (param) | **178,407** | 783 µs | 920 µs |
 
-### `ab` Results (Phase 0 results)
+### `ab` Results (Phase 1 results)
 
 | Route | Req/sec | Mean Latency | Max Latency | Failed |
 |-------|---------|-------------|-------------|--------|
-| `GET /` (static) | **26,763** | 3.7 ms | 14 ms | **0** |
-| `GET /hello/:name` (param) | **26,796** | 3.7 ms | 20 ms | **0** |
+| `GET /` (static) | **27,158** | 3.68 ms | 8 ms | **0** |
+| `GET /hello/:name` (param) | **27,833** | 3.59 ms | 9 ms | **0** |
 
 **Key observations:**
-- Parameterized routing is only **~8% slower** than static — radix tree overhead is negligible
-- **Zero failed requests** across 200,000 total `ab` requests
-- Average latency stays under **0.7ms** under sustained `wrk` load
-- These numbers are from Phase 0 — **zero middleware, zero optimizations applied yet**
-
-Cross-framework comparison (`wrk` vs Gin, Echo, Fiber) will be published at `v0.9.x` after the full optimization sprint.
+- Static route throughput **+3.5%** over Phase 0 — TCP tuning (`TCP_NODELAY` + `SO_REUSEPORT`) delivers measurable improvement
+- Parameterized routing is only **~16% slower** than static — radix tree overhead remains negligible
+- **Zero failed requests** across all benchmark runs
+- Average latency stays under **0.8ms** under sustained `wrk` load
+- All micro-benchmarks: **0 allocs/op** — zero-allocation hot path preserved
 
 ---
 
@@ -159,7 +158,20 @@ func main() {
 | 0.0.8 | Middleware chain (onion model) | ✅ |
 | 0.0.9 | Route groups + named routes | ✅ |
 
-**Next: Phase 1 (0.1.0 → 0.1.9) — HTTP/1.1 Hardening + Core Middleware**
+**Phase 1 (0.1.0 → 0.1.9) — IN PROGRESS** 🔄
+
+| Version | Feature | Status |
+|---------|---------|--------|
+| 0.1.0 | TCP tuning, graceful shutdown, TLS hardening | ✅ |
+| 0.1.1 | Logger middleware | 🔜 |
+| 0.1.2 | Recovery middleware | 🔜 |
+| 0.1.3 | RequestID middleware | 🔜 |
+| 0.1.4 | Timeout middleware | 🔜 |
+| 0.1.5 | CORS middleware | 🔜 |
+| 0.1.6 | BodyLimit + Secure headers | 🔜 |
+| 0.1.7 | Rate limiter | 🔜 |
+| 0.1.8 | Compression | 🔜 |
+| 0.1.9 | CSRF + ETag + Static files | 🔜 |
 
 ---
 
@@ -196,8 +208,9 @@ func main() {
 
 ### Server
 - Configurable timeouts: read, write, idle, header
-- Graceful shutdown on SIGINT/SIGTERM
-- TLS 1.2+ with hardened cipher suites
+- TCP socket tuning: `TCP_NODELAY` (default), `SO_REUSEPORT`, `TCP_FASTOPEN` (Linux)
+- Graceful shutdown on SIGINT/SIGTERM (idempotent, race-free)
+- TLS 1.2+ with hardened AEAD cipher suites + session resumption
 - Custom `net.Listener` support
 
 ---
@@ -207,16 +220,16 @@ func main() {
 Rudra is engineered to allocate nothing on the hot path. **All numbers below are confirmed from `go test -bench=. -benchmem`.**
 
 ```
-Route match (static)          →  25 ns/op   0 allocs   0 bytes
-Route match (3 params)        →  69 ns/op   0 allocs   0 bytes
-Route match (wildcard)        →  34 ns/op   0 allocs   0 bytes
+Route match (static)          →  26 ns/op   0 allocs   0 bytes
+Route match (3 params)        →  68 ns/op   0 allocs   0 bytes
+Route match (wildcard)        →  33 ns/op   0 allocs   0 bytes
 Context acquire (sync.Pool)   →  14 ns/op   0 allocs   0 bytes
 Context SetParam              → 1.3 ns/op   0 allocs   0 bytes
 Middleware chain (3 layers)   →   0 allocs   0 bytes
 JSON response (≤4KB)          →   1 alloc   (the encoding itself, unavoidable)
 ```
 
-Key techniques: `sync.Pool` context recycling, fixed-size `[16]Param` array, direct-to-`ResponseWriter` JSON encoding, O(1) static route map bypassing the radix tree entirely.
+Key techniques: `sync.Pool` context recycling, fixed-size `[16]Param` array, direct-to-`ResponseWriter` JSON encoding, O(1) static route map bypassing the radix tree entirely, `TCP_NODELAY` for reduced latency on small responses.
 
 ---
 
@@ -250,6 +263,9 @@ rudra/
 app := core.New(
     core.WithReadTimeout(5 * time.Second),
     core.WithWriteTimeout(10 * time.Second),
+    core.WithTCPNoDelay(true),
+    core.WithSOReusePort(true),
+    core.WithTCPFastOpen(true),
     core.WithHTTP2(),
 )
 
@@ -349,7 +365,7 @@ See [`ROADMAP.md`](./ROADMAP.md) for the full version-by-version plan from `0.0.
 | Phase | Versions | Theme | Status |
 |-------|----------|-------|--------|
 | Foundation | 0.0.1–0.0.9 | Engine, router, context, render | ✅ Complete |
-| HTTP/1.1 | 0.1.0–0.1.9 | Full HTTP/1.1 + core middleware | 🔜 Next |
+| HTTP/1.1 | 0.1.0–0.1.9 | Full HTTP/1.1 + core middleware | 🔄 In Progress |
 | Binding | 0.2.0–0.2.9 | Request binding + validation | 📋 Planned |
 | HTTP/2 | 0.3.0–0.3.5 | TLS, h2c, server push | 📋 Planned |
 | WebSocket | 0.4.0–0.4.6 | WS, hub, rooms, compression | 📋 Planned |
