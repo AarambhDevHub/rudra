@@ -14,7 +14,6 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Planned
 
-- `0.1.0` — TCP tuning (`SO_REUSEPORT`, `TCP_NODELAY`), graceful shutdown hardening, HTTPS TLS config
 - `0.1.1` — `middleware.Logger` — structured access log (slog JSON)
 - `0.1.2` — `middleware.Recovery` — panic recovery, stack in logs never in response
 - `0.1.3` — `middleware.RequestID` — UUID v4 per request, `X-Request-ID` header
@@ -24,6 +23,46 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `0.1.7` — `middleware.RateLimit` — token bucket, per-IP, `X-RateLimit-*` headers
 - `0.1.8` — `middleware.Compress` — gzip + brotli + zstd, Accept-Encoding negotiated
 - `0.1.9` — `middleware.CSRF` + `middleware.ETag` + `Engine.Static`
+
+---
+
+## [0.1.0] — 2026-04-14
+
+### Added
+
+- Custom TCP listener with `SO_REUSEPORT` + `TCP_NODELAY` + `TCP_FASTOPEN` (Linux)
+- Platform-specific build tags: `server_linux.go` / `server_other.go`
+- `core.WithTCPNoDelay(bool)` — functional option for `TCP_NODELAY` (default: true)
+- `core.WithSOReusePort(bool)` — functional option for `SO_REUSEPORT` (default: false, Linux only)
+- `core.WithTCPFastOpen(bool)` — functional option for `TCP_FASTOPEN` (default: false, Linux 3.7+)
+- `core.WithShutdownTimeout(d)` — functional option for graceful shutdown timeout
+- `Options.TCPNoDelay`, `Options.SOReusePort`, `Options.TCPFastOpen` config fields
+- `Engine.Run(addr)` refactored to use custom `newTCPListener()` instead of `ListenAndServe`
+- `Engine.RunTLS()` hardened with explicit AEAD cipher suites (AES-GCM + ChaCha20-Poly1305)
+- TLS session resumption enabled via `SessionTicketsDisabled: false`
+- Removed deprecated `PreferServerCipherSuites` (Go 1.22+)
+- `Engine.Shutdown()` made idempotent via `sync.Once` — safe to call multiple times
+- `Engine.server` field protected by `sync.RWMutex` — race-free concurrent `Run`/`Shutdown`
+- `examples/hello/main.go` updated with graceful shutdown pattern (`go app.Run()` + `app.ListenForShutdown()`)
+- `core/server_test.go` — 11 new tests: custom listener, socket options, graceful shutdown, idempotent shutdown
+
+### Changed
+
+- `Engine.Run()` now creates listener via `newTCPListener()` before `http.Server`, enabling socket tuning
+- `Engine.RunTLS()` now accepts custom listener + explicit cipher suite list instead of Go defaults
+- `Engine.RunListener()` sets `e.server` under mutex protection
+- `Engine.Shutdown()` uses `sync.Once` to prevent double-close of `shutdownCh`
+
+### Performance
+
+- `wrk` throughput (4 threads, 100 conn, 10s, i5-1135G7):
+  - Static route (`GET /`): **213,817 req/sec** @ 671µs avg latency (+3.5% over v0.0.9)
+  - Param route (`GET /hello/:name`): **178,407 req/sec** @ 783µs avg latency
+- Router micro-benchmarks (zero regression):
+  - Static route match: **26 ns/op, 0 allocs/op**
+  - 3-param route match: **68 ns/op, 0 allocs/op**
+  - Wildcard route match: **33 ns/op, 0 allocs/op**
+  - Context acquire/release: **14 ns/op, 0 allocs/op**
 
 ---
 
@@ -223,7 +262,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-[Unreleased]: https://github.com/AarambhDevHub/rudra/compare/v0.0.9...HEAD
+[Unreleased]: https://github.com/AarambhDevHub/rudra/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/AarambhDevHub/rudra/compare/v0.0.9...v0.1.0
 [0.0.9]: https://github.com/AarambhDevHub/rudra/compare/v0.0.8...v0.0.9
 [0.0.8]: https://github.com/AarambhDevHub/rudra/compare/v0.0.7...v0.0.8
 [0.0.7]: https://github.com/AarambhDevHub/rudra/compare/v0.0.6...v0.0.7

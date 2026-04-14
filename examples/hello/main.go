@@ -4,8 +4,8 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/AarambhDevHub/rudra/core"
 	rudraContext "github.com/AarambhDevHub/rudra/context"
+	"github.com/AarambhDevHub/rudra/core"
 )
 
 func main() {
@@ -25,8 +25,12 @@ func main() {
 		})
 	})
 
-	log.Println("rudra: starting server on :8080")
-	if err := app.Run(":8080"); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("rudra: server error: %v", err)
-	}
+	go func() {
+		log.Println("rudra: starting server on :8080")
+		if err := app.Run(":8080"); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("rudra: server error: %v", err)
+		}
+	}()
+
+	app.ListenForShutdown()
 }
