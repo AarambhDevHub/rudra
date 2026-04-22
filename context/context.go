@@ -247,3 +247,20 @@ func (c *Context) Redirect(code int, url string) error {
 	c.written = true
 	return nil
 }
+
+// SetRequest replaces the underlying *http.Request.
+// Used by middleware (e.g. Timeout) to inject a derived request with deadline context.
+func (c *Context) SetRequest(r *http.Request) {
+	c.request = r
+}
+
+// SetWriter replaces the underlying http.ResponseWriter.
+// Used by middleware (e.g. Logger) to wrap the writer for interception.
+func (c *Context) SetWriter(w http.ResponseWriter) {
+	c.writer = w
+}
+
+// UserAgent returns the User-Agent header.
+func (c *Context) UserAgent() string {
+	return c.request.UserAgent()
+}

@@ -1,8 +1,8 @@
 <div align="center">
 
 <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go Version"/>
-<img src="https://img.shields.io/badge/version-0.1.0-brightgreen?style=for-the-badge" alt="Version"/>
-<img src="https://img.shields.io/badge/phase_1-in_progress-yellow?style=for-the-badge" alt="Phase 1 In Progress"/>
+<img src="https://img.shields.io/badge/version-0.1.9-brightgreen?style=for-the-badge" alt="Version"/>
+<img src="https://img.shields.io/badge/phase_1-complete-brightgreen?style=for-the-badge" alt="Phase 1 Complete"/>
 <img src="https://img.shields.io/badge/license-MIT%20%2B%20Apache%202.0-blue?style=for-the-badge" alt="License"/>
 <img src="https://img.shields.io/badge/status-active-brightgreen?style=for-the-badge" alt="Status"/>
 
@@ -92,19 +92,30 @@ package main
 import (
     "log"
     "net/http"
+    "time"
 
     "github.com/AarambhDevHub/rudra/core"
     rudraContext "github.com/AarambhDevHub/rudra/context"
+    "github.com/AarambhDevHub/rudra/middleware"
 )
 
 func main() {
     app := core.New()
 
+    // Production middleware stack
+    app.Use(middleware.Recovery())                    // panic recovery → 500 JSON
+    app.Use(middleware.RequestID())                   // UUID v4 per request
+    app.Use(middleware.Logger())                      // structured JSON access logs
+    app.Use(middleware.Timeout(middleware.TimeoutConfig{
+        Timeout: 10 * time.Second,                   // per-request deadline
+    }))
+    app.Use(middleware.CORS())                        // CORS with permissive defaults
+
     // Static route
     app.GET("/", func(c *rudraContext.Context) error {
         return c.JSON(http.StatusOK, map[string]string{
-            "framework": "Rudra",
-            "status":    "fierce",
+            "framework":  "Rudra",
+            "request_id": c.RequestID(),
         })
     })
 
@@ -115,28 +126,20 @@ func main() {
         })
     })
 
-    // Wildcard route
-    app.GET("/files/*filepath", func(c *rudraContext.Context) error {
-        return c.String(http.StatusOK, "File: "+c.Param("filepath"))
-    })
-
-    // Route groups with middleware
+    // Route groups
     api := app.Group("/api/v1")
     api.GET("/users", func(c *rudraContext.Context) error {
         return c.JSON(http.StatusOK, []string{"alice", "bob"})
     })
 
-    // Multiple HTTP methods
-    app.POST("/users", func(c *rudraContext.Context) error {
-        var body map[string]any
-        if err := c.BindJSON(&body); err != nil {
-            return c.AbortWithError(http.StatusBadRequest, err)
+    go func() {
+        log.Println("rudra: listening on :8080")
+        if err := app.Run(":8080"); err != nil && err != http.ErrServerClosed {
+            log.Fatalf("rudra: server error: %v", err)
         }
-        return c.JSON(http.StatusCreated, body)
-    })
+    }()
 
-    log.Println("rudra: listening on :8080")
-    app.Run(":8080")
+    app.ListenForShutdown()
 }
 ```
 
@@ -144,34 +147,37 @@ func main() {
 
 ## Current Status
 
-**Phase 0 (0.0.1 → 0.0.9) — COMPLETE** ✅
+**Phase 0 (0.0.1 → 0.0.9) — COMPLETE** ✅ — Engine, router, context, rendering, error handling, middleware chain, route groups
 
-| Version | Feature | Status |
-|---------|---------|--------|
-| 0.0.1 | Project scaffold, module init | ✅ |
-| 0.0.2 | HTTP/1.1 server, functional options | ✅ |
-| 0.0.3 | Context system + sync.Pool | ✅ |
-| 0.0.4 | Static route router (O(1) map) | ✅ |
-| 0.0.5 | Radix tree router (`:param`, `*wildcard`) | ✅ |
-| 0.0.6 | Response rendering (JSON, HTML, XML, Stream) | ✅ |
-| 0.0.7 | Error handling system | ✅ |
-| 0.0.8 | Middleware chain (onion model) | ✅ |
-| 0.0.9 | Route groups + named routes | ✅ |
-
-**Phase 1 (0.1.0 → 0.1.9) — IN PROGRESS** 🔄
+**Phase 1 (0.1.0 → 0.1.9) — COMPLETE** ✅
 
 | Version | Feature | Status |
 |---------|---------|--------|
 | 0.1.0 | TCP tuning, graceful shutdown, TLS hardening | ✅ |
-| 0.1.1 | Logger middleware | 🔜 |
-| 0.1.2 | Recovery middleware | 🔜 |
-| 0.1.3 | RequestID middleware | 🔜 |
-| 0.1.4 | Timeout middleware | 🔜 |
-| 0.1.5 | CORS middleware | 🔜 |
-| 0.1.6 | BodyLimit + Secure headers | 🔜 |
-| 0.1.7 | Rate limiter | 🔜 |
-| 0.1.8 | Compression | 🔜 |
-| 0.1.9 | CSRF + ETag + Static files | 🔜 |
+| 0.1.1 | Logger middleware (slog JSON/text/Apache) | ✅ |
+| 0.1.2 | Recovery middleware (panic → 500 JSON) | ✅ |
+| 0.1.3 | RequestID middleware (UUID v4, forwarding) | ✅ |
+| 0.1.4 | Timeout middleware (per-request deadline) | ✅ |
+| 0.1.5 | CORS middleware (preflight, credentials, dynamic origins) | ✅ |
+| 0.1.6 | BodyLimit + Secure headers (HSTS, CSP, XSS, X-Frame) | ✅ |
+| 0.1.7 | Rate limiter (token bucket, per-IP, X-RateLimit-*) | ✅ |
+| 0.1.8 | Compression (gzip, sync.Pool'd writers) | ✅ |
+| 0.1.9 | CSRF + ETag + Static file server | ✅ |
+
+**Phase 2 (0.2.0 → 0.2.9) — UP NEXT** 🔄
+
+| Version | Feature | Status |
+|---------|---------|--------|
+| 0.2.0 | JSON binding (`BindJSON`) | 🔜 |
+| 0.2.1 | Form + Multipart binding | 🔜 |
+| 0.2.2 | Query + Path + Header binding | 🔜 |
+| 0.2.3 | XML binding + rendering | 🔜 |
+| 0.2.4 | MessagePack binding + rendering | 🔜 |
+| 0.2.5 | Validator core (required, min, max, email, url) | 🔜 |
+| 0.2.6 | Validator extended rules (uuid, oneof, dive, cross-field) | 🔜 |
+| 0.2.7 | Custom validator rules | 🔜 |
+| 0.2.8 | ShouldBind + MustBind auto-detection | 🔜 |
+| 0.2.9 | Binding benchmarks + optimization | 🔜 |
 
 ---
 
@@ -199,6 +205,25 @@ func main() {
 - `Engine.Use()` for global middleware
 - Route-level middleware: `app.GET("/path", handler, mw1, mw2)`
 - `c.Next()` / `c.Abort()` chain control
+
+### Built-in Middleware (v0.1.9)
+- **Logger** — structured JSON/text/Apache access logs via `log/slog`, latency + bytes tracking, skip paths
+- **Recovery** — `defer/recover`, stack trace in logs (never in response), `OnPanic` hook
+- **RequestID** — UUID v4 via `crypto/rand`, forwards upstream `X-Request-ID`, custom generators
+- **Timeout** — `context.WithTimeout` per-request, custom timeout handler, race-free goroutine design
+- **CORS** — preflight + simple requests, `AllowOriginFunc`, credentials, `MaxAge`, pre-computed headers
+- **BodyLimit** — `http.MaxBytesReader` wrapping, 413 on exceed, configurable limit (default 32MB)
+- **Secure** — HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy
+- **RateLimit** — token bucket per IP, `X-RateLimit-*` headers, `Retry-After`, background cleanup
+- **Compress** — gzip with `sync.Pool`’d writers, min-length skip, content-type filter
+- **CSRF** — double-submit cookie, `crypto/rand` tokens, constant-time comparison
+- **ETag** — SHA-256 body hash, 304 Not Modified, weak ETag support
+
+### Static Files
+- `Engine.Static(prefix, root)` — directory serving
+- `Engine.StaticFile(path, file)` — single file serving
+- `Engine.StaticFS(prefix, fs)` — `http.FileSystem` / `embed.FS` support
+- Directory listing disabled, traversal protection
 
 ### Error Handling
 - `RudraError` type with HTTP status codes
@@ -284,6 +309,28 @@ api := app.Group("/api/v1")
 api.GET("/users", listUsers)
 ```
 
+### Middleware
+
+```go
+import "github.com/AarambhDevHub/rudra/middleware"
+
+// Recommended production stack (order matters — outermost first)
+app.Use(middleware.Recovery())                                 // catches panics
+app.Use(middleware.RequestID())                                // generates X-Request-ID
+app.Use(middleware.Logger(middleware.LoggerConfig{              // structured access logs
+    Format:    "json",
+    SkipPaths: []string{"/health"},
+}))
+app.Use(middleware.Timeout(middleware.TimeoutConfig{            // per-request deadline
+    Timeout: 10 * time.Second,
+}))
+app.Use(middleware.CORS(middleware.CORSConfig{                  // CORS headers
+    AllowOrigins:     []string{"https://app.example.com"},
+    AllowCredentials: true,
+    MaxAge:           3600,
+}))
+```
+
 ### Context
 
 ```go
@@ -346,9 +393,11 @@ app.SetErrorHandler(func(c *rudraContext.Context, err error) {
 | net/http compatibility  | ✅   | ✅   | ❌    | ✅        |
 | Struct validation       | ❌   | ✅   | ❌    | 🔜 (Phase 2) |
 | JWT built-in            | 3rd  | 3rd  | ✅    | 🔜 (Phase 6) |
-| CORS built-in           | 3rd  | ✅   | ✅    | 🔜 (Phase 1) |
-| Rate limiter built-in   | 3rd  | 3rd  | ✅    | 🔜 (Phase 1) |
-| Compression built-in   | 3rd  | ✅   | ✅    | 🔜 (Phase 1) |
+| CORS built-in           | 3rd  | ✅   | ✅    | ✅            |
+| Rate limiter built-in   | 3rd  | 3rd  | ✅    | ✅            |
+| Compression built-in   | 3rd  | ✅   | ✅    | ✅            |
+| CSRF built-in           | 3rd  | ✅   | ✅    | ✅            |
+| Static file server      | 3rd  | ✅   | ✅    | ✅            |
 | OpenTelemetry           | 3rd  | 3rd  | 3rd   | 🔜 (Phase 7) |
 | Prometheus metrics      | 3rd  | 3rd  | 3rd   | 🔜 (Phase 7) |
 | Sonic JSON (SIMD)      | ❌   | ❌   | ❌    | 🔜 (Phase 2) |
@@ -365,7 +414,7 @@ See [`ROADMAP.md`](./ROADMAP.md) for the full version-by-version plan from `0.0.
 | Phase | Versions | Theme | Status |
 |-------|----------|-------|--------|
 | Foundation | 0.0.1–0.0.9 | Engine, router, context, render | ✅ Complete |
-| HTTP/1.1 | 0.1.0–0.1.9 | Full HTTP/1.1 + core middleware | 🔄 In Progress |
+| HTTP/1.1 | 0.1.0–0.1.9 | Full HTTP/1.1 + core middleware | ✅ Complete |
 | Binding | 0.2.0–0.2.9 | Request binding + validation | 📋 Planned |
 | HTTP/2 | 0.3.0–0.3.5 | TLS, h2c, server push | 📋 Planned |
 | WebSocket | 0.4.0–0.4.6 | WS, hub, rooms, compression | 📋 Planned |

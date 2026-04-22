@@ -6,10 +6,16 @@ import (
 
 	rudraContext "github.com/AarambhDevHub/rudra/context"
 	"github.com/AarambhDevHub/rudra/core"
+	"github.com/AarambhDevHub/rudra/middleware"
 )
 
 func main() {
 	app := core.New()
+
+	// Production-ready middleware stack.
+	app.Use(middleware.Recovery())
+	app.Use(middleware.RequestID())
+	app.Use(middleware.Logger())
 
 	app.GET("/", func(c *rudraContext.Context) error {
 		return c.JSON(http.StatusOK, map[string]string{
