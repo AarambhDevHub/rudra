@@ -10,19 +10,193 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-> Phase 1 — HTTP/1.1 Hardening + Core Middleware (`0.1.0` → `0.1.9`)
+> Phase 2 — Binding & Validation (`0.2.0` → `0.2.9`)
 
 ### Planned
 
-- `0.1.1` — `middleware.Logger` — structured access log (slog JSON)
-- `0.1.2` — `middleware.Recovery` — panic recovery, stack in logs never in response
-- `0.1.3` — `middleware.RequestID` — UUID v4 per request, `X-Request-ID` header
-- `0.1.4` — `middleware.Timeout` — per-request context deadline
-- `0.1.5` — `middleware.CORS` — full CORS with preflight cache
-- `0.1.6` — `middleware.BodyLimit` + `middleware.Secure` — security headers
-- `0.1.7` — `middleware.RateLimit` — token bucket, per-IP, `X-RateLimit-*` headers
-- `0.1.8` — `middleware.Compress` — gzip + brotli + zstd, Accept-Encoding negotiated
-- `0.1.9` — `middleware.CSRF` + `middleware.ETag` + `Engine.Static`
+- `0.2.0` — `binding.BindJSON` — JSON request body binding
+- `0.2.1` — `binding.BindForm` + `binding.BindMultipart` — form data binding
+- `0.2.2` — `binding.BindQuery` + `binding.BindPath` + `binding.BindHeader`
+
+---
+
+## [0.1.9] — 2026-04-22
+
+### Added
+
+- `middleware.CSRF(config ...CSRFConfig) HandlerFunc` — CSRF protection
+  - Double-submit cookie pattern with `crypto/rand` token generation
+  - Constant-time comparison via `crypto/subtle` (timing-attack safe)
+  - Configurable: `TokenLength`, `CookieName`, `HeaderName`, `FormField`, `Secure`, `SameSite`, `MaxAge`
+  - Safe methods (GET, HEAD, OPTIONS, TRACE) automatically skipped
+  - Token stored on context (`c.Set("csrf_token", ...)`) for template rendering
+  - Token refreshed after every successful unsafe-method validation
+- `middleware.ETag(config ...ETagConfig) HandlerFunc` — ETag generation
+  - SHA-256 hash of response body (first 16 bytes) for ETag computation
+  - Returns `304 Not Modified` on `If-None-Match` header match
+  - Supports weak ETags (`W/"..."`) via `ETagConfig.Weak`
+  - Consistent hashing: same content → same ETag across requests
+- `Engine.Static(prefix, root string)` — serve files from directory
+- `Engine.StaticFile(path, file string)` — serve single file
+- `Engine.StaticFS(prefix string, fs http.FileSystem)` — serve from `http.FS`/`embed.FS`
+- Directory listing disabled for security (serves `index.html` only)
+- Directory traversal protection (blocks `..` paths)
+- 13 unit tests covering CSRF + ETag scenarios
+
+---
+
+## [0.1.8] — 2026-04-22
+
+### Added
+
+- `middleware.Compress(config ...CompressConfig) HandlerFunc` — gzip compression
+  - Stdlib `compress/gzip` — zero external dependencies
+  - `Accept-Encoding` negotiation with `Content-Encoding: gzip` response
+  - `CompressConfig.Level` — gzip level (default: `gzip.DefaultCompression`)
+  - `CompressConfig.MinLength` — skip small responses (default: 1024 bytes)
+  - `CompressConfig.ContentTypes` — prefix-matched content type filter
+  - `sync.Pool`’d gzip writers for minimal allocations
+  - `Vary: Accept-Encoding` header always set
+  - Skips 204/304 responses and pre-compressed content
+  - Implements `http.Flusher` interface for SSE compatibility
+- 5 unit tests covering compression, skipping, and header behavior
+
+---
+
+## [0.1.7] — 2026-04-22
+
+### Added
+
+- `middleware.RateLimit(config ...RateLimitConfig) HandlerFunc` — token bucket rate limiter
+  - Per-key (default: IP) in-memory token bucket algorithm
+  - `RateLimitConfig.Rate` — tokens per second (default: 10)
+  - `RateLimitConfig.Burst` — bucket capacity (default: 20)
+  - `RateLimitConfig.KeyFunc` — custom key extraction (default: `c.RealIP()`)
+  - `RateLimitConfig.OnLimit` — custom rate-limited response handler
+  - `RateLimitConfig.ExpiresIn` — idle bucket cleanup interval (default: 5m)
+  - `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` headers on every response
+  - `Retry-After` header on 429 Too Many Requests
+  - Background goroutine for periodic expired bucket cleanup
+  - `sync.Map` for lock-free per-key bucket lookup
+- 5 unit tests covering limits, custom keys, and custom handlers
+
+---
+
+## [0.1.6] — 2026-04-22
+
+### Added
+
+- `middleware.BodyLimit(config ...BodyLimitConfig) HandlerFunc` — request body size limiter
+  - Uses `http.MaxBytesReader` (stdlib, zero-alloc)
+  - Returns `413 Payload Too Large` when body exceeds limit
+  - `BodyLimitConfig.Limit` — max bytes (default: 32MB)
+  - `BodyLimitConfig.OnLimit` — custom over-limit handler
+  - Skips bodyless methods (GET, HEAD, OPTIONS)
+- `middleware.Secure(config ...SecureConfig) HandlerFunc` — security headers
+  - `X-Content-Type-Options: nosniff` (default: enabled)
+  - `X-Frame-Options: DENY` (configurable: `SAMEORIGIN`, etc.)
+  - `X-XSS-Protection: 1; mode=block`
+  - `Strict-Transport-Security` with `max-age`, `includeSubDomains`, `preload` (HTTPS only)
+  - `Content-Security-Policy` header
+  - `Referrer-Policy` header (default: `strict-origin-when-cross-origin`)
+  - `Permissions-Policy` header
+  - Pre-computed HSTS value — zero per-request string formatting
+- `middleware.SecureRedirect(httpsPort int)` — HTTP→HTTPS redirect middleware
+- 12 unit tests covering body limits, all security headers, HSTS proxy detection
+
+---
+
+## [0.1.5] — 2026-04-22
+
+### Added
+
+- `middleware.CORS(config ...CORSConfig) HandlerFunc` — full CORS middleware
+- Handles both simple requests and preflight `OPTIONS` requests
+- `CORSConfig.AllowOrigins []string` — exact match + wildcard `"*"`
+- `CORSConfig.AllowMethods []string` — configurable allowed methods
+- `CORSConfig.AllowHeaders []string` — configurable allowed headers
+- `CORSConfig.ExposeHeaders []string` — headers exposed to browser
+- `CORSConfig.AllowCredentials bool` — credential support (blocks wildcard origin)
+- `CORSConfig.MaxAge int` — preflight cache duration in seconds (default 24h)
+- `CORSConfig.AllowOriginFunc func(origin string) bool` — dynamic origin validation
+- `DefaultCORSConfig()` — permissive defaults for development
+- Pre-computed header strings for zero per-request string allocations
+- Preflight returns `204 No Content` without proceeding to handler
+- `Vary: Origin` header set when origin is not wildcard
+- 10 unit tests covering all CORS scenarios
+
+---
+
+## [0.1.4] — 2026-04-22
+
+### Added
+
+- `middleware.Timeout(config ...TimeoutConfig) HandlerFunc` — per-request timeout
+- Wraps `r.Context()` with `context.WithTimeout` — compatible with DB/HTTP client timeouts
+- `TimeoutConfig.Timeout time.Duration` — default 30s
+- `TimeoutConfig.OnTimeout func(*Context) error` — custom timeout handler
+- Returns `503 Service Unavailable` on timeout (via `errors.NewHTTPError`)
+- Goroutine-based handler execution with `select` on done/timeout channels
+- Re-panics recovered panics for upstream Recovery middleware to handle
+- `Context.SetRequest(r *http.Request)` — added to context for request replacement
+- 5 unit tests including fast/slow handlers, custom handler, and context propagation
+
+---
+
+## [0.1.3] — 2026-04-22
+
+### Added
+
+- `middleware.RequestID(config ...RequestIDConfig) HandlerFunc` — unique request ID per request
+- UUID v4 generation via `crypto/rand` — cryptographically secure
+- Reads `X-Request-ID` from incoming request first (forwarded from upstream proxy)
+- Sets `X-Request-ID` on response header
+- Stores on context: `c.Set("request_id", id)` + `c.SetRequestID(id)`
+- `RequestIDConfig.Generator func() string` — custom ID generator
+- `RequestIDConfig.Header string` — custom header name (default `"X-Request-ID"`)
+- `DefaultRequestIDConfig()` — sane defaults
+- 7 unit tests including uniqueness, forwarding, custom generator, UUID v4 format validation
+
+---
+
+## [0.1.2] — 2026-04-22
+
+### Added
+
+- `middleware.Recovery(config ...RecoveryConfig) HandlerFunc` — panic recovery middleware
+- `defer/recover` wraps the inner middleware chain
+- Captures panic value + full stack trace via `runtime/debug.Stack()`
+- Logs stack trace via `log/slog` JSON handler (never sent to client)
+- Returns `500 Internal Server Error` JSON to client
+- `RecoveryConfig.LogStackTrace bool` — toggle stack trace logging (default true)
+- `RecoveryConfig.Output io.Writer` — stack trace output destination (default os.Stderr)
+- `RecoveryConfig.OnPanic func(c, err, stack)` — custom panic hook
+- `DefaultRecoveryConfig()` — sane defaults
+- 6 unit tests: panic handling, no-panic passthrough, OnPanic hook, disabled logging, error propagation
+
+---
+
+## [0.1.1] — 2026-04-22
+
+### Added
+
+- `middleware.Logger(config ...LoggerConfig) HandlerFunc` — structured access logging
+- Logs: method, path, status, latency, IP, request_id, user_agent, bytes_written
+- Three formats: `"json"` (slog JSON handler), `"text"` (slog text handler), `"common"` (Apache Combined Log)
+- `LoggerConfig.SkipPaths []string` — omit health/metrics routes (O(1) map lookup)
+- `LoggerConfig.Output io.Writer` — defaults to `os.Stdout`
+- `LoggerConfig.TimeFormat string` — configurable time format
+- `LoggerConfig.Level slog.Level` — configurable log level
+- Latency measured around `c.Next()` — nanosecond-accurate
+- Uses `log/slog` (Go 1.21+) for structured output
+- `middleware/response_writer.go` — intercepting `http.ResponseWriter` wrapper
+  - Tracks `statusCode` and `bytesWritten` across all Write calls
+  - Implements `http.Flusher`, `http.Hijacker`, `http.Pusher` for full compatibility
+  - Double `WriteHeader` calls safely ignored
+- `Context.SetWriter(w http.ResponseWriter)` — replace response writer for interception
+- `Context.UserAgent() string` — convenience accessor for User-Agent header
+- `DefaultLoggerConfig()` — sane defaults
+- 8 unit tests covering all formats, skip paths, bytes/status tracking, writer interfaces
 
 ---
 
@@ -262,7 +436,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-[Unreleased]: https://github.com/AarambhDevHub/rudra/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/AarambhDevHub/rudra/compare/v0.1.9...HEAD
+[0.1.9]: https://github.com/AarambhDevHub/rudra/compare/v0.1.8...v0.1.9
+[0.1.8]: https://github.com/AarambhDevHub/rudra/compare/v0.1.7...v0.1.8
+[0.1.7]: https://github.com/AarambhDevHub/rudra/compare/v0.1.6...v0.1.7
+[0.1.6]: https://github.com/AarambhDevHub/rudra/compare/v0.1.5...v0.1.6
+[0.1.5]: https://github.com/AarambhDevHub/rudra/compare/v0.1.4...v0.1.5
+[0.1.4]: https://github.com/AarambhDevHub/rudra/compare/v0.1.3...v0.1.4
+[0.1.3]: https://github.com/AarambhDevHub/rudra/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/AarambhDevHub/rudra/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/AarambhDevHub/rudra/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/AarambhDevHub/rudra/compare/v0.0.9...v0.1.0
 [0.0.9]: https://github.com/AarambhDevHub/rudra/compare/v0.0.8...v0.0.9
 [0.0.8]: https://github.com/AarambhDevHub/rudra/compare/v0.0.7...v0.0.8
