@@ -394,13 +394,13 @@
 
 ---
 
-## Phase 2 — Binding & Validation (0.2.0 → 0.2.9)
+## Phase 2 — Binding & Validation (0.2.0 → 0.2.9) ✅ COMPLETE
 
 > Goal: Complete request data binding and struct validation system.
 
 ---
 
-### `0.2.0` — JSON Binding
+### `0.2.0` — JSON Binding ✅ COMPLETE
 
 **Deliverables:**
 - `binding.BindJSON(c, v any) error`
@@ -415,7 +415,7 @@
 
 ---
 
-### `0.2.1` — Form + Multipart Binding
+### `0.2.1` — Form + Multipart Binding ✅ COMPLETE
 
 **Deliverables:**
 - `binding.BindForm(c, v any) error` — `application/x-www-form-urlencoded`
@@ -431,7 +431,7 @@
 
 ---
 
-### `0.2.2` — Query + Path + Header Binding
+### `0.2.2` — Query + Path + Header Binding ✅ COMPLETE
 
 **Deliverables:**
 - `binding.BindQuery(c, v any) error` — struct tags: `query:"name"`
@@ -446,7 +446,7 @@
 
 ---
 
-### `0.2.3` — XML Binding + Rendering
+### `0.2.3` — XML Binding + Rendering ✅ COMPLETE
 
 **Deliverables:**
 - `binding.BindXML(c, v any) error` — `application/xml` or `text/xml`
@@ -460,7 +460,7 @@
 
 ---
 
-### `0.2.4` — MessagePack Binding + Rendering
+### `0.2.4` — MessagePack Binding + Rendering ✅ COMPLETE
 
 **Deliverables:**
 - `binding.BindMsgpack(c, v any) error` — `application/msgpack`
@@ -474,7 +474,7 @@
 
 ---
 
-### `0.2.5` — Validator Core (Basic Rules)
+### `0.2.5` — Validator Core (Basic Rules) ✅ COMPLETE
 
 **Deliverables:**
 - `validator` package with `Validate(v any) error` function
@@ -489,7 +489,7 @@
 
 ---
 
-### `0.2.6` — Validator Extended Rules
+### `0.2.6` — Validator Extended Rules ✅ COMPLETE
 
 **Deliverables:**
 - Additional rules: `uuid`, `len=N`, `oneof=a b c`, `alphanum`, `numeric`, `regexp=pattern`
@@ -503,7 +503,7 @@
 
 ---
 
-### `0.2.7` — Custom Validator Rules
+### `0.2.7` — Custom Validator Rules ✅ COMPLETE
 
 **Deliverables:**
 - `validator.Register(name string, fn func(value string) bool)` — simple rule
@@ -517,7 +517,7 @@
 
 ---
 
-### `0.2.8` — ShouldBind + MustBind Auto-Detection
+### `0.2.8` — ShouldBind + MustBind Auto-Detection ✅ COMPLETE
 
 **Deliverables:**
 - `Context.ShouldBind(v any) error` — auto-selects binder from `Content-Type`
@@ -531,7 +531,7 @@
 
 ---
 
-### `0.2.9` — Sonic JSON Integration
+### `0.2.9` — Sonic JSON Integration ✅ COMPLETE
 
 **Deliverables:**
 - Replace `encoding/json` with `github.com/bytedance/sonic` in `render/json.go` and `binding/json.go`

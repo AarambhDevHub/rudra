@@ -1,15 +1,15 @@
 package validator
 
-// Validator is the interface for struct validation.
-type Validator interface {
-	Validate(v any) error
-}
+import "reflect"
 
-// DefaultValidator provides built-in validation using struct tags.
-type DefaultValidator struct{}
-
-// Validate validates a struct using rudra tags.
-func (d *DefaultValidator) Validate(v any) error {
-	// TODO: implement in Phase 2 (0.2.5)
-	return nil
+// Validate runs rudra struct-tag validation against v.
+// v must be a pointer to a struct.
+// Returns nil if all rules pass, or a ValidationErrors slice on failure.
+func Validate(v any) error {
+	rv := reflect.ValueOf(v)
+	errs := validateStruct(rv)
+	if len(errs) == 0 {
+		return nil
+	}
+	return errs
 }
