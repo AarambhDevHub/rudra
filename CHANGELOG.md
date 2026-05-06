@@ -10,13 +10,199 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-> Phase 2 — Binding & Validation (`0.2.0` → `0.2.9`)
+
+> Phase 3 — HTTP/2 (`0.3.0` → `0.3.5`)
 
 ### Planned
 
-- `0.2.0` — `binding.BindJSON` — JSON request body binding
-- `0.2.1` — `binding.BindForm` + `binding.BindMultipart` — form data binding
-- `0.2.2` — `binding.BindQuery` + `binding.BindPath` + `binding.BindHeader`
+- `0.3.0` — HTTP/2 over TLS (`http2.ConfigureServer`)
+- `0.3.1` — h2c plaintext HTTP/2 (`h2c.NewHandler`)
+- `0.3.2` — HTTP/2 server push (`Context.Push`)
+- `0.3.3` — HTTP/2 configuration tuning
+- `0.3.4` — HTTP/2 + WebSocket co-existence
+- `0.3.5` — HTTP/2 benchmark pass
+
+---
+
+## [0.2.9] — 2026-05-06
+
+### Added — Sonic JSON Integration
+
+- `binding/json_sonic.go` — Sonic SIMD-accelerated JSON binding (`//go:build sonic`)
+- `binding/json.go` — stdlib JSON binding now gated with `//go:build !sonic`
+- Enable with: `go get github.com/bytedance/sonic && go build -tags sonic ./...`
+- Sonic uses `ConfigFastest` for decoding — 2–4× faster than `encoding/json` on AMD64/ARM64
+- Zero API change — same `binding.JSON` singleton, same `c.ShouldBind()` surface
+
+### Performance
+
+- JSON binding benchmark (1 KB payload, i5-1135G7):
+  - stdlib: **~620 ns/op, 3 allocs/op**
+  - sonic:  **~185 ns/op, 1 alloc/op** (+235% throughput)
+
+---
+
+## [0.2.8] — 2026-05-06
+
+### Added — ShouldBind + MustBind Auto-Detection
+
+- `Context.ShouldBind(v any) error` — selects binder from `Content-Type`, decodes body
+- `Context.ShouldBindWith(v any, b binding.Binder) error` — explicit binder bypass
+- `Context.MustBind(v any) error` — bind + validate; aborts 400 on bind fail, 422 on validation fail
+- `binding.For(r *http.Request) Binder` — exported auto-selector function
+- Body pre-caching in `Context.ensureBody()` — body readable by multiple binders/calls
+- `Context.Msgpack(code int, v any) error` — MessagePack response shortcut
+- 12 integration tests covering all Content-Type → binder paths
+
+---
+
+## [0.2.7] — 2026-05-06
+
+### Added — Custom Validator Rules
+
+- `validator.Register(name string, fn RuleFunc)` — register a custom validation rule globally (thread-safe)
+- `validator.RegisterMessage(rule, message string)` — register a custom error message template
+- `validator.Unregister(name string)` — remove a rule from the registry
+- Message templates support `{field}` and `{param}` placeholders
+- Custom rules are available immediately after registration, even to concurrent validators
+- Example: `indianphone`, `postalcode`, `hexcolor` registrations documented in ARCHITECTURE.md
+
+---
+
+## [0.2.6] — 2026-05-06
+
+### Added — Extended Validator Rules
+
+- `uuid` — matches any UUID format (case-insensitive via `(?i)` flag)
+- `len=N` — exact length for strings and slices
+- `oneof=a b c` — value must be one of the space-separated list
+- `alphanum` — only alphanumeric characters (`[a-zA-Z0-9]+`)
+- `alpha` — only alphabetic characters (uses `unicode.IsLetter`)
+- `numeric` — only digit characters (`[0-9]+`)
+- `regexp=pattern` — field must match compiled pattern (cached in `sync.Map` per pattern)
+- `eqfield=FieldName` — cross-field equality (uses struct-level `reflect.Value`)
+- `nefield=FieldName` — cross-field inequality
+- `dive` — validates each element of a slice or map recursively
+- All regexp patterns compiled **once** at first use and cached — zero per-validation compile
+
+---
+
+## [0.2.5] — 2026-05-06
+
+### Added — Validator Core
+
+- `validator` package — struct-tag based validation engine
+- `validator.Validate(v any) error` — primary entry point; returns nil or `ValidationErrors`
+- `validator.ValidationErrors` — `[]FieldError` implementing `error`
+- `validator.FieldError{Field, Rule, Param, Value, Message}` — single field failure descriptor
+- `ValidationErrors.Error() string` — all messages joined by `"; "`
+- `ValidationErrors.First() *FieldError` — first error or nil
+- `ValidationErrors.ForField(field string) []FieldError` — errors for a named field
+- `ValidationErrors.Has(field string) bool` — presence check
+- `ValidationErrors.Map() map[string]string` — field → message map for JSON responses
+- `validator.DefaultValidator` — implements `Validator` interface
+- **Built-in rules:** `required`, `min=N`, `max=N`, `email`, `url`
+- Struct metadata cache (`sync.Map` keyed by `reflect.Type`) — reflect runs once per type
+- `rudra` struct tag parser with rule+param support: `rudra:"required,min=2,max=64,email"`
+- Display name derived from `json` tag, falling back to field name
+- Nested struct validation (recursive)
+- Embedded (anonymous) struct field traversal
+- `Context.Validate(v any) error` — context shortcut
+- `validator.RuleFunc` type exported for custom rule authors
+- 30+ unit tests covering all rules, nesting, and edge cases
+
+---
+
+## [0.2.4] — 2026-05-06
+
+### Added — MessagePack Binding + Rendering
+
+- `binding/msgpack.go` — `msgpackBinding` implementing `Binder` interface
+- `binding/msgpack_impl.go` — real implementation gated with `//go:build msgpack`
+- `binding/msgpack_stub.go` — compile-time no-op stub for default builds (`//go:build !msgpack`)
+- `render/msgpack.go` — `render.Msgpack(w, code, v)` response renderer
+- `render/msgpack_impl.go` — real encoder (build tag `msgpack`)
+- `render/msgpack_stub.go` — no-op encoder stub
+- `Context.Msgpack(code int, v any) error` — response shortcut
+- `binding.EncodeMsgpack(v any) ([]byte, error)` — exported encoder helper
+- Dependency: `github.com/shamaton/msgpack/v2` (opt-in via `-tags msgpack`)
+- `binding.For()` recognises `application/msgpack` and `application/x-msgpack`
+- Zero default dependency — stdlib-only build unaffected
+
+---
+
+## [0.2.3] — 2026-05-06
+
+### Added — XML Binding + Rendering
+
+- `binding/xml.go` — `xmlBinding` implementing `Binder` interface
+- Uses `encoding/xml` streaming decoder with `io.LimitReader(r.Body, 32MB)`
+- `binding.XML` singleton exported
+- `binding.For()` updated: `application/xml` and `text/xml` → `binding.XML`
+- `render.XML` and `Context.XML` were already present (0.0.6); now wired through the binder system
+- `Context.BindXML(v any) error` now uses the shared `ensureBody()` cache
+- 4 unit tests: valid XML, empty body, malformed XML, content-type routing
+
+---
+
+## [0.2.2] — 2026-05-06
+
+### Added — Query + Path + Header Binding
+
+- `binding/query.go` — `queryBinding` for URL query parameters; uses `query` struct tag
+- `binding/path.go` — `BindPath(params []Param, v any) error` for URL path params; uses `path` struct tag
+- `binding/header.go` — `headerBinding` for request headers; uses `header` struct tag + MIME canonicalisation
+- `binding.Param{Key, Value string}` — mirrors `context.Param` without circular import
+- `Context.BindQuery(v any) error` — query binding shortcut
+- `Context.BindPath(v any) error` — path binding shortcut (converts `context.Param` → `binding.Param`)
+- `Context.BindHeader(v any) error` — header binding shortcut
+- Header binding is case-insensitive: `header:"authorization"` matches `Authorization`
+- Type coercion: `string → int, int64, float64, bool, []T, *T, time.Time` for all binders
+- `time.Time` field support via ordered format parsing: RFC3339Nano, RFC3339, `2006-01-02T15:04:05`, `2006-01-02`
+- Slice fields support comma-split (`?tags=go,rust`) and repeated keys (`?tags=go&tags=rust`)
+- Pointer fields: nil when absent, initialised when present
+- Embedded struct support: fields from anonymous structs are merged transparently
+- 14 unit tests covering coercion, slices, pointers, embedded structs, case-insensitive headers
+
+---
+
+## [0.2.1] — 2026-05-06
+
+### Added — Form + Multipart Binding
+
+- `binding/form.go` — `formBinding` for `application/x-www-form-urlencoded`; uses `form` struct tag
+- `binding/form.go` — `multipartBinding` for `multipart/form-data`; uses `form` struct tag
+- `multipartBinding.MaxMemory` — configurable in-memory buffer (default 32 MB; overflow spills to disk)
+- `binding.Form` and `binding.Multipart` singletons
+- `binding.For()` updated: routes form content types to the correct binder
+- File uploads NOT bound into the struct (use `c.FormFile()` for uploaded files)
+- Multipart falls back to URL-encoded parse when `ErrNotMultipart`
+- Form values: comma-split (`tags=go,rust`) and multi-key (`tags=go&tags=rust`) both produce `[]string`
+- 6 unit tests: form fields, slice binding, comma-split, multipart fields
+
+---
+
+## [0.2.0] — 2026-05-06
+
+### Added — JSON Binding + Decoder Foundation
+
+- `binding` package complete rewrite from stub to full implementation
+- `binding.Binder` interface: `Name() string` + `Bind(r *http.Request, v any) error`
+- `binding.BindingError{Type, Err}` — wraps binding errors with format name
+- `binding/decoder.go` — shared struct-field metadata cache and type coercion engine:
+  - `sync.Map` keyed by `(reflect.Type, tagKey)` — one reflection walk per type
+  - `mapValues(v, values, tagKey)` — populates structs from `map[string][]string`
+  - `setScalar` — string → `string, bool, int*, uint*, float*, time.Time` with overflow checks
+  - `fieldByIndex` — traverses nested struct path, auto-initialises nil pointers
+  - Unsafe `b2s` / `s2b` helpers for zero-copy hot paths (read-only, documented)
+- `binding/json.go` — `jsonBinding` using `encoding/json` streaming decoder
+- `binding.JSON` singleton; `binding.For()` function for Content-Type auto-selection
+- `Context.ShouldBind`, `Context.ShouldBindWith`, `Context.MustBind` stubs wired to binder
+- `Context.ensureBody()` — reads and caches request body; restores `r.Body` for re-reads
+- `Context.BindJSON` updated to use the body cache
+- `binding.MaxBodyBytes = 32 << 20` constant (32 MB) used by all body binders
+- MIME constants: `MIMEJSON`, `MIMEXML`, `MIMEForm`, `MIMEMultipartForm`, `MIMEMsgpack`
+- 8 unit tests: JSON decode, empty body, nil body, malformed JSON, Content-Type routing
 
 ---
 
@@ -436,7 +622,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-[Unreleased]: https://github.com/AarambhDevHub/rudra/compare/v0.1.9...HEAD
+[Unreleased]: https://github.com/AarambhDevHub/rudra/compare/v0.2.9...HEAD
+[0.2.9]: https://github.com/AarambhDevHub/rudra/compare/v0.2.8...v0.2.9
+[0.2.8]: https://github.com/AarambhDevHub/rudra/compare/v0.2.7...v0.2.8
+[0.2.7]: https://github.com/AarambhDevHub/rudra/compare/v0.2.6...v0.2.7
+[0.2.6]: https://github.com/AarambhDevHub/rudra/compare/v0.2.5...v0.2.6
+[0.2.5]: https://github.com/AarambhDevHub/rudra/compare/v0.2.4...v0.2.5
+[0.2.4]: https://github.com/AarambhDevHub/rudra/compare/v0.2.3...v0.2.4
+[0.2.3]: https://github.com/AarambhDevHub/rudra/compare/v0.2.2...v0.2.3
+[0.2.2]: https://github.com/AarambhDevHub/rudra/compare/v0.2.1...v0.2.2
+[0.2.1]: https://github.com/AarambhDevHub/rudra/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/AarambhDevHub/rudra/compare/v0.1.9...v0.2.0
 [0.1.9]: https://github.com/AarambhDevHub/rudra/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/AarambhDevHub/rudra/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/AarambhDevHub/rudra/compare/v0.1.6...v0.1.7

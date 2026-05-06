@@ -1,8 +1,8 @@
 <div align="center">
 
 <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go Version"/>
-<img src="https://img.shields.io/badge/version-0.1.9-brightgreen?style=for-the-badge" alt="Version"/>
-<img src="https://img.shields.io/badge/phase_1-complete-brightgreen?style=for-the-badge" alt="Phase 1 Complete"/>
+<img src="https://img.shields.io/badge/version-0.2.9-brightgreen?style=for-the-badge" alt="Version"/>
+<img src="https://img.shields.io/badge/phase_2-complete-brightgreen?style=for-the-badge" alt="Phase 2 Complete"/>
 <img src="https://img.shields.io/badge/license-MIT%20%2B%20Apache%202.0-blue?style=for-the-badge" alt="License"/>
 <img src="https://img.shields.io/badge/status-active-brightgreen?style=for-the-badge" alt="Status"/>
 
@@ -21,8 +21,8 @@
 
 ### **Fierce. Fast. Fearless.**
 
-A zero-allocation, batteries-included Go web framework built on `net/http`.
-HTTP/1.1 · HTTP/2 · WebSocket · SSE · Radix Tree Router · Zero Alloc Hot Path
+A zero-allocation, batteries-included Go web framework built on `net/http`.  
+HTTP/1.1 · Radix Tree Router · Zero Alloc Hot Path · Full Binding & Validation
 
 **Sister project of [Ajaya](https://github.com/AarambhDevHub/ajaya) (Rust) — by [Aarambh Dev Hub](https://github.com/AarambhDevHub)**
 
@@ -34,17 +34,13 @@ HTTP/1.1 · HTTP/2 · WebSocket · SSE · Radix Tree Router · Zero Alloc Hot Pa
 
 Go already has great frameworks. So why build another one?
 
-Because none of them do everything well in a single package. **Gin** is fast but has no HTTP/2 push, no WebSocket, no SSE, no validation. **Echo** is good but Fiber breaks `net/http` compatibility. **Fiber** has the features but you lose the entire stdlib ecosystem.
-
-Rudra is built with one goal: **be the framework you never have to leave**. Everything you need — HTTP/1.1 hardened, HTTP/2 native, WebSocket with rooms, SSE with backpressure, zero-allocation routing, built-in JWT/CORS/RateLimit/Compression — ships in one `go get`.
-
-And it stays compatible with `net/http`. Your existing middleware works. Your existing tools work.
+Because none of them do everything well in a single package. **Gin** has no built-in validation. **Echo** lacks zero-alloc routing. **Fiber** breaks `net/http` compatibility. Rudra is built to be **the framework you never have to leave** — fast routing, full binding, struct validation, and production middleware all in one `go get`.
 
 ---
 
 ## Benchmarks
 
-> Hardware: Intel Core i5-1135G7 (11th Gen), 8GB RAM, Pop OS, Go 1.22
+> Hardware: Intel Core i5-1135G7, 8GB RAM, Pop OS, Go 1.22
 > Test: 4 threads, 100 connections, 10 seconds (`wrk`)
 
 ### Router Micro-Benchmarks
@@ -55,28 +51,20 @@ And it stays compatible with `net/http`. Your existing middleware works. Your ex
 | 3-param route match | **68** | **0** |
 | Wildcard route match | **33** | **0** |
 | Context acquire/release | **14** | **0** |
-| Context SetParam | **1.3** | **0** |
 
-### `wrk` Throughput (Phase 1 results)
+### `wrk` Throughput
 
-| Route | Req/sec | Avg Latency | Stdev |
-|-------|---------|-------------|-------|
-| `GET /` (static) | **213,817** | 671 µs | 809 µs |
-| `GET /hello/:name` (param) | **178,407** | 783 µs | 920 µs |
+| Route | Req/sec | Avg Latency |
+|-------|---------|-------------|
+| `GET /` (static) | **213,817** | 671 µs |
+| `GET /hello/:name` (param) | **178,407** | 783 µs |
 
-### `ab` Results (Phase 1 results)
+### JSON Binding (Phase 2)
 
-| Route | Req/sec | Mean Latency | Max Latency | Failed |
-|-------|---------|-------------|-------------|--------|
-| `GET /` (static) | **27,158** | 3.68 ms | 8 ms | **0** |
-| `GET /hello/:name` (param) | **27,833** | 3.59 ms | 9 ms | **0** |
-
-**Key observations:**
-- Static route throughput **+3.5%** over Phase 0 — TCP tuning (`TCP_NODELAY` + `SO_REUSEPORT`) delivers measurable improvement
-- Parameterized routing is only **~16% slower** than static — radix tree overhead remains negligible
-- **Zero failed requests** across all benchmark runs
-- Average latency stays under **0.8ms** under sustained `wrk` load
-- All micro-benchmarks: **0 allocs/op** — zero-allocation hot path preserved
+| Engine | ns/op | allocs |
+|--------|-------|--------|
+| stdlib (`encoding/json`) | ~620 | 3 |
+| Sonic (`-tags sonic`) | ~185 | 1 |
 
 ---
 
@@ -92,50 +80,54 @@ package main
 import (
     "log"
     "net/http"
-    "time"
 
     "github.com/AarambhDevHub/rudra/core"
     rudraContext "github.com/AarambhDevHub/rudra/context"
     "github.com/AarambhDevHub/rudra/middleware"
+    "github.com/AarambhDevHub/rudra/validator"
 )
+
+type CreateUserRequest struct {
+    Name  string `json:"name"  rudra:"required,min=2,max=64"`
+    Email string `json:"email" rudra:"required,email"`
+    Age   int    `json:"age"   rudra:"required,min=18,max=120"`
+    Role  string `json:"role"  rudra:"required,oneof=admin user guest"`
+}
 
 func main() {
     app := core.New()
 
-    // Production middleware stack
-    app.Use(middleware.Recovery())                    // panic recovery → 500 JSON
-    app.Use(middleware.RequestID())                   // UUID v4 per request
-    app.Use(middleware.Logger())                      // structured JSON access logs
-    app.Use(middleware.Timeout(middleware.TimeoutConfig{
-        Timeout: 10 * time.Second,                   // per-request deadline
-    }))
-    app.Use(middleware.CORS())                        // CORS with permissive defaults
+    app.Use(middleware.Recovery())
+    app.Use(middleware.RequestID())
+    app.Use(middleware.Logger())
+    app.Use(middleware.CORS(middleware.DefaultCORSConfig()))
 
-    // Static route
-    app.GET("/", func(c *rudraContext.Context) error {
-        return c.JSON(http.StatusOK, map[string]string{
-            "framework":  "Rudra",
-            "request_id": c.RequestID(),
+    app.POST("/users", func(c *rudraContext.Context) error {
+        var req CreateUserRequest
+        if err := c.MustBind(&req); err != nil {
+            return err // already aborted with 400/422
+        }
+        return c.JSON(http.StatusCreated, map[string]any{
+            "id":   42,
+            "name": req.Name,
         })
     })
 
-    // Param route
     app.GET("/users/:id", func(c *rudraContext.Context) error {
-        return c.JSON(http.StatusOK, map[string]string{
-            "id": c.Param("id"),
-        })
-    })
-
-    // Route groups
-    api := app.Group("/api/v1")
-    api.GET("/users", func(c *rudraContext.Context) error {
-        return c.JSON(http.StatusOK, []string{"alice", "bob"})
+        type PathParams struct {
+            ID int64 `path:"id"`
+        }
+        var p PathParams
+        if err := c.BindPath(&p); err != nil {
+            return err
+        }
+        return c.JSON(http.StatusOK, map[string]any{"id": p.ID})
     })
 
     go func() {
         log.Println("rudra: listening on :8080")
         if err := app.Run(":8080"); err != nil && err != http.ErrServerClosed {
-            log.Fatalf("rudra: server error: %v", err)
+            log.Fatal(err)
         }
     }()
 
@@ -147,114 +139,228 @@ func main() {
 
 ## Current Status
 
-**Phase 0 (0.0.1 → 0.0.9) — COMPLETE** ✅ — Engine, router, context, rendering, error handling, middleware chain, route groups
+**Phase 0 (0.0.1 → 0.0.9)** ✅ Engine, router, context, rendering, middleware chain
 
-**Phase 1 (0.1.0 → 0.1.9) — COMPLETE** ✅
+**Phase 1 (0.1.0 → 0.1.9)** ✅ Logger, Recovery, RequestID, Timeout, CORS, BodyLimit, Secure, RateLimit, Compress, CSRF, ETag, Static
 
-| Version | Feature | Status |
-|---------|---------|--------|
-| 0.1.0 | TCP tuning, graceful shutdown, TLS hardening | ✅ |
-| 0.1.1 | Logger middleware (slog JSON/text/Apache) | ✅ |
-| 0.1.2 | Recovery middleware (panic → 500 JSON) | ✅ |
-| 0.1.3 | RequestID middleware (UUID v4, forwarding) | ✅ |
-| 0.1.4 | Timeout middleware (per-request deadline) | ✅ |
-| 0.1.5 | CORS middleware (preflight, credentials, dynamic origins) | ✅ |
-| 0.1.6 | BodyLimit + Secure headers (HSTS, CSP, XSS, X-Frame) | ✅ |
-| 0.1.7 | Rate limiter (token bucket, per-IP, X-RateLimit-*) | ✅ |
-| 0.1.8 | Compression (gzip, sync.Pool'd writers) | ✅ |
-| 0.1.9 | CSRF + ETag + Static file server | ✅ |
-
-**Phase 2 (0.2.0 → 0.2.9) — UP NEXT** 🔄
+**Phase 2 (0.2.0 → 0.2.9)** ✅ **Binding & Validation — complete**
 
 | Version | Feature | Status |
 |---------|---------|--------|
-| 0.2.0 | JSON binding (`BindJSON`) | 🔜 |
-| 0.2.1 | Form + Multipart binding | 🔜 |
-| 0.2.2 | Query + Path + Header binding | 🔜 |
-| 0.2.3 | XML binding + rendering | 🔜 |
-| 0.2.4 | MessagePack binding + rendering | 🔜 |
-| 0.2.5 | Validator core (required, min, max, email, url) | 🔜 |
-| 0.2.6 | Validator extended rules (uuid, oneof, dive, cross-field) | 🔜 |
-| 0.2.7 | Custom validator rules | 🔜 |
-| 0.2.8 | ShouldBind + MustBind auto-detection | 🔜 |
-| 0.2.9 | Binding benchmarks + optimization | 🔜 |
+| 0.2.0 | JSON binding + decoder foundation + struct-field cache | ✅ |
+| 0.2.1 | Form + multipart binding | ✅ |
+| 0.2.2 | Query + path + header binding; full type coercion | ✅ |
+| 0.2.3 | XML binding + rendering | ✅ |
+| 0.2.4 | MessagePack binding + rendering (build tag `msgpack`) | ✅ |
+| 0.2.5 | Validator core: required, min, max, email, url | ✅ |
+| 0.2.6 | Extended rules: uuid, len, oneof, alphanum, regexp, eqfield, … | ✅ |
+| 0.2.7 | Custom rule + message registration | ✅ |
+| 0.2.8 | `ShouldBind`, `MustBind`, `ShouldBindWith`, body cache | ✅ |
+| 0.2.9 | Sonic JSON integration (build tag `sonic`) | ✅ |
+
+**Phase 3 (0.3.0 → 0.3.5)** 🔜 HTTP/2 — up next
+
+---
+
+## Binding
+
+Rudra auto-selects the right binder from the request's `Content-Type`:
+
+```go
+// Auto-detection (recommended)
+var req CreateUserRequest
+if err := c.ShouldBind(&req); err != nil {
+    return err
+}
+
+// Bind + Validate in one call (aborts 400/422 on failure)
+if err := c.MustBind(&req); err != nil {
+    return err
+}
+
+// Explicit binder
+import "github.com/AarambhDevHub/rudra/binding"
+if err := c.ShouldBindWith(&req, binding.JSON); err != nil { ... }
+
+// Query parameters: GET /users?page=2&limit=20
+type Pagination struct {
+    Page  int `query:"page"`
+    Limit int `query:"limit"`
+}
+var p Pagination
+_ = c.BindQuery(&p)
+
+// Path parameters: /orgs/:org/repos/:repo
+type RepoParams struct {
+    Org  string `path:"org"`
+    Repo string `path:"repo"`
+}
+var rp RepoParams
+_ = c.BindPath(&rp)
+
+// Request headers
+type AuthHeaders struct {
+    Authorization string `header:"Authorization"`
+    RequestID     string `header:"X-Request-Id"`
+}
+var h AuthHeaders
+_ = c.BindHeader(&h)
+```
+
+### Struct Tag Reference
+
+```go
+type CreateUserRequest struct {
+    // Basic rules
+    Name     string   `json:"name"     rudra:"required,min=2,max=64"`
+    Email    string   `json:"email"    rudra:"required,email"`
+    Age      int      `json:"age"      rudra:"required,min=18,max=120"`
+
+    // Enum validation
+    Role     string   `json:"role"     rudra:"required,oneof=admin user guest"`
+
+    // String character rules
+    Code     string   `json:"code"     rudra:"alphanum"`
+    Phone    string   `json:"phone"    rudra:"regexp=^[6-9]\\d{9}$"`
+
+    // Cross-field rules
+    Password string   `json:"password" rudra:"required,min=8"`
+    Confirm  string   `json:"confirm"  rudra:"required,eqfield=Password"`
+
+    // Slice with dive (validate each element)
+    Tags     []string `json:"tags"     rudra:"min=1,dive,required"`
+
+    // Nested struct (validated recursively)
+    Address  Address  `json:"address"`
+}
+```
+
+### Supported Built-in Rules
+
+| Rule | Description |
+|------|-------------|
+| `required` | Field must not be zero value (empty string, 0, nil, false, empty slice) |
+| `min=N` | Min length (string/slice) or min value (number) |
+| `max=N` | Max length (string/slice) or max value (number) |
+| `len=N` | Exact length |
+| `email` | Valid email address format |
+| `url` | Valid http/https URL |
+| `uuid` | Valid UUID (any version) |
+| `oneof=a b c` | Value must be one of the space-separated list |
+| `alphanum` | Only `[a-zA-Z0-9]` characters |
+| `alpha` | Only alphabetic characters |
+| `numeric` | Only digit characters |
+| `regexp=pattern` | Must match the compiled pattern (cached at first use) |
+| `eqfield=Field` | Must equal another field (cross-field) |
+| `nefield=Field` | Must not equal another field (cross-field) |
+| `dive` | Validate each element of a slice or map |
+
+### Custom Rules
+
+```go
+import (
+    "reflect"
+    "regexp"
+    "github.com/AarambhDevHub/rudra/validator"
+)
+
+var phoneRe = regexp.MustCompile(`^[6-9]\d{9}$`)
+
+func init() {
+    validator.Register("indianphone", func(field string, v reflect.Value, _ string, _ reflect.Value) string {
+        if v.Kind() != reflect.String || !phoneRe.MatchString(v.String()) {
+            return "indianphone"
+        }
+        return ""
+    })
+    validator.RegisterMessage("indianphone", "'{field}' must be a valid 10-digit Indian mobile number")
+}
+```
+
+### Validation Errors
+
+```go
+if err := c.Validate(&req); err != nil {
+    ve := err.(validator.ValidationErrors)
+
+    // Full error string
+    log.Println(ve.Error()) // "'name' is required; 'email' must be a valid email"
+
+    // First error only
+    log.Println(ve.First().Field, ve.First().Rule)
+
+    // Errors for a specific field
+    for _, fe := range ve.ForField("email") {
+        log.Println(fe.Rule, fe.Message)
+    }
+
+    // Map for JSON response
+    return c.JSON(422, map[string]any{
+        "message": "validation failed",
+        "errors":  ve.Map(), // {"name": "...", "email": "..."}
+    })
+}
+```
+
+---
+
+## Build Tags
+
+| Feature | Tag | Dependency |
+|---------|-----|------------|
+| Sonic JSON (2–4× faster) | `sonic` | `github.com/bytedance/sonic` |
+| MessagePack binding + rendering | `msgpack` | `github.com/shamaton/msgpack/v2` |
+
+```bash
+# Enable Sonic JSON acceleration
+go get github.com/bytedance/sonic
+go build -tags sonic ./...
+
+# Enable MessagePack
+go get github.com/shamaton/msgpack/v2
+go build -tags msgpack ./...
+
+# Both
+go build -tags "sonic msgpack" ./...
+```
 
 ---
 
 ## Features
 
+### Binding (Phase 2 — complete)
+- **Auto-detection** — `ShouldBind` selects binder from Content-Type
+- **Bind + Validate** — `MustBind` aborts with correct HTTP status on failure
+- **JSON** — stdlib (`encoding/json`) or Sonic SIMD (`-tags sonic`)
+- **XML** — `encoding/xml` streaming decoder
+- **Form** — `application/x-www-form-urlencoded` + `multipart/form-data`
+- **Query** — URL query parameters with slice/comma-split support
+- **Path** — URL path parameters typed to struct fields
+- **Header** — Request headers with case-insensitive matching
+- **MessagePack** — optional via `-tags msgpack`
+- **Type coercion** — `string → int, uint, float, bool, []T, *T, time.Time`
+- **Struct-field metadata cache** — one reflection walk per type per binder
+
+### Validation (Phase 2 — complete)
+- **14 built-in rules** — required, min, max, len, email, url, uuid, oneof, alphanum, alpha, numeric, regexp, eqfield, nefield
+- **Cross-field rules** — eqfield, nefield using root struct value
+- **Dive** — validate each element of slices/maps
+- **Nested struct** — recursive validation
+- **Embedded struct** — transparent anonymous field traversal
+- **Custom rules** — `validator.Register(name, fn)` globally and thread-safely
+- **Custom messages** — `validator.RegisterMessage(rule, template)` with `{field}`, `{param}` placeholders
+- **Per-type cache** — `sync.Map` keyed by `reflect.Type`; near-zero cost after warm-up
+- **Pre-compiled regexp** — patterns cached per string in `sync.Map`
+- **Rich error type** — `ValidationErrors` with `.First()`, `.ForField()`, `.Has()`, `.Map()`
+
 ### Router
-- Radix tree router — O(log n) worst case
-- O(1) fast path for static routes (map lookup)
-- `:param` and `*wildcard` with zero heap allocation
-- Route groups with prefix + shared middleware
-- Named routes + URL generation: `router.URL("user.profile", "42")`
-- 404 / 405 error handling
-- Route conflict detection (panic on duplicate)
+- Radix tree — O(log n) worst case, O(1) static fast-path
+- `:param` and `*wildcard` — zero heap allocation (fixed `[16]Param` array)
+- Route groups, named routes, URL generation
+- 404 / 405 handling
 
-### Context
-- `sync.Pool` — zero allocation context acquisition
-- `[16]Param` fixed array — no heap alloc for path params
-- Per-request key-value store (lazy initialized)
-- `c.JSON()`, `c.HTML()`, `c.String()`, `c.Blob()`, `c.Stream()`, `c.XML()`, `c.JSONP()`
-- `c.BindJSON()`, `c.BindXML()`
-- `c.Redirect()`, `c.NoContent()`
-
-### Middleware
-- Onion model middleware chain
-- `Engine.Use()` for global middleware
-- Route-level middleware: `app.GET("/path", handler, mw1, mw2)`
-- `c.Next()` / `c.Abort()` chain control
-
-### Built-in Middleware (v0.1.9)
-- **Logger** — structured JSON/text/Apache access logs via `log/slog`, latency + bytes tracking, skip paths
-- **Recovery** — `defer/recover`, stack trace in logs (never in response), `OnPanic` hook
-- **RequestID** — UUID v4 via `crypto/rand`, forwards upstream `X-Request-ID`, custom generators
-- **Timeout** — `context.WithTimeout` per-request, custom timeout handler, race-free goroutine design
-- **CORS** — preflight + simple requests, `AllowOriginFunc`, credentials, `MaxAge`, pre-computed headers
-- **BodyLimit** — `http.MaxBytesReader` wrapping, 413 on exceed, configurable limit (default 32MB)
-- **Secure** — HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy
-- **RateLimit** — token bucket per IP, `X-RateLimit-*` headers, `Retry-After`, background cleanup
-- **Compress** — gzip with `sync.Pool`’d writers, min-length skip, content-type filter
-- **CSRF** — double-submit cookie, `crypto/rand` tokens, constant-time comparison
-- **ETag** — SHA-256 body hash, 304 Not Modified, weak ETag support
-
-### Static Files
-- `Engine.Static(prefix, root)` — directory serving
-- `Engine.StaticFile(path, file)` — single file serving
-- `Engine.StaticFS(prefix, fs)` — `http.FileSystem` / `embed.FS` support
-- Directory listing disabled, traversal protection
-
-### Error Handling
-- `RudraError` type with HTTP status codes
-- Constructors: 400, 401, 403, 404, 405, 409, 422, 429, 500
-- Custom error handlers via `Engine.SetErrorHandler()`
-- Panic recovery → 500 JSON (never leaks stack traces)
-
-### Server
-- Configurable timeouts: read, write, idle, header
-- TCP socket tuning: `TCP_NODELAY` (default), `SO_REUSEPORT`, `TCP_FASTOPEN` (Linux)
-- Graceful shutdown on SIGINT/SIGTERM (idempotent, race-free)
-- TLS 1.2+ with hardened AEAD cipher suites + session resumption
-- Custom `net.Listener` support
-
----
-
-## Zero-Allocation Design
-
-Rudra is engineered to allocate nothing on the hot path. **All numbers below are confirmed from `go test -bench=. -benchmem`.**
-
-```
-Route match (static)          →  26 ns/op   0 allocs   0 bytes
-Route match (3 params)        →  68 ns/op   0 allocs   0 bytes
-Route match (wildcard)        →  33 ns/op   0 allocs   0 bytes
-Context acquire (sync.Pool)   →  14 ns/op   0 allocs   0 bytes
-Context SetParam              → 1.3 ns/op   0 allocs   0 bytes
-Middleware chain (3 layers)   →   0 allocs   0 bytes
-JSON response (≤4KB)          →   1 alloc   (the encoding itself, unavoidable)
-```
-
-Key techniques: `sync.Pool` context recycling, fixed-size `[16]Param` array, direct-to-`ResponseWriter` JSON encoding, O(1) static route map bypassing the radix tree entirely, `TCP_NODELAY` for reduced latency on small responses.
+### Middleware (Phase 1 — complete)
+- Logger (slog JSON/text/Apache), Recovery, RequestID, Timeout, CORS, BodyLimit, Secure, RateLimit, Compress, CSRF, ETag
 
 ---
 
@@ -265,170 +371,48 @@ rudra/
 ├── core/         Engine, server, options, graceful shutdown
 ├── router/       Radix tree + route groups + named routes
 ├── context/      Request/response context + sync.Pool
+├── binding/      Request data binding (JSON, XML, Form, Query, Path, Header, Msgpack)
+├── validator/    Struct validation with tag-based rules
 ├── middleware/   Built-in middleware (Phase 1)
-├── binding/      Request data binding (Phase 2)
-├── render/       Response renderers (JSON, HTML, Stream…)
+├── render/       Response renderers (JSON, HTML, Stream, Msgpack…)
 ├── ws/           WebSocket (Phase 4)
 ├── sse/          Server-Sent Events (Phase 5)
-├── validator/    Struct validation (Phase 2)
 ├── config/       YAML + environment config (Phase 7)
 ├── errors/       HTTP error types + global handler
 ├── testutil/     Testing utilities + assertion helpers
 ├── benchmarks/   Router and framework benchmarks
-└── examples/      Working examples
-```
-
----
-
-## API Reference
-
-### Engine
-
-```go
-app := core.New(
-    core.WithReadTimeout(5 * time.Second),
-    core.WithWriteTimeout(10 * time.Second),
-    core.WithTCPNoDelay(true),
-    core.WithSOReusePort(true),
-    core.WithTCPFastOpen(true),
-    core.WithHTTP2(),
-)
-
-app.GET("/", handler)
-app.POST("/", handler)
-app.PUT("/:id", handler)
-app.PATCH("/:id", handler)
-app.DELETE("/:id", handler)
-app.OPTIONS("/", handler)
-app.HEAD("/", handler)
-app.Any("/", handler)
-
-app.Use(middleware1, middleware2)
-
-api := app.Group("/api/v1")
-api.GET("/users", listUsers)
-```
-
-### Middleware
-
-```go
-import "github.com/AarambhDevHub/rudra/middleware"
-
-// Recommended production stack (order matters — outermost first)
-app.Use(middleware.Recovery())                                 // catches panics
-app.Use(middleware.RequestID())                                // generates X-Request-ID
-app.Use(middleware.Logger(middleware.LoggerConfig{              // structured access logs
-    Format:    "json",
-    SkipPaths: []string{"/health"},
-}))
-app.Use(middleware.Timeout(middleware.TimeoutConfig{            // per-request deadline
-    Timeout: 10 * time.Second,
-}))
-app.Use(middleware.CORS(middleware.CORSConfig{                  // CORS headers
-    AllowOrigins:     []string{"https://app.example.com"},
-    AllowCredentials: true,
-    MaxAge:           3600,
-}))
-```
-
-### Context
-
-```go
-func handler(c *rudraContext.Context) error {
-    // Path params
-    id := c.Param("id")
-
-    // Query params
-    page := c.QueryDefault("page", "1")
-
-    // Headers
-    auth := c.Header("Authorization")
-    c.SetHeader("X-Custom", "value")
-
-    // Request body
-    var body MyStruct
-    if err := c.BindJSON(&body); err != nil {
-        return c.AbortWithError(400, err)
-    }
-
-    // Store values for middleware
-    c.Set("user", user)
-
-    // Responses
-    return c.JSON(200, data)
-}
-```
-
-### Error Handling
-
-```go
-// Built-in error constructors
-err := errors.NotFound("user not found")
-err := errors.BadRequest("invalid input")
-err := errors.InternalServerError("something broke")
-
-// Custom error handler
-app.SetErrorHandler(func(c *rudraContext.Context, err error) {
-    var re *errors.RudraError
-    if errors.As(err, &re) {
-        c.JSON(re.Code, re)
-        return
-    }
-    c.JSON(500, map[string]string{"error": "internal server error"})
-})
+└── examples/     Working examples
 ```
 
 ---
 
 ## Comparison
 
-| Feature                 | Gin  | Echo | Fiber | **Rudra** |
-|-------------------------|------|------|-------|-----------|
-| Zero-alloc routing      | ~    | ~    | ✅    | ✅        |
-| HTTP/2 native           | ~    | ~    | ❌    | 🔜 (Phase 3) |
-| h2c plaintext HTTP/2    | ❌   | ❌   | ❌    | 🔜 (Phase 3) |
-| HTTP/2 server push      | ~    | ~    | ❌    | 🔜 (Phase 3) |
-| WebSocket built-in      | ❌   | ❌   | ✅    | 🔜 (Phase 4) |
-| SSE built-in            | ❌   | ❌   | ✅    | 🔜 (Phase 5) |
-| net/http compatibility  | ✅   | ✅   | ❌    | ✅        |
-| Struct validation       | ❌   | ✅   | ❌    | 🔜 (Phase 2) |
-| JWT built-in            | 3rd  | 3rd  | ✅    | 🔜 (Phase 6) |
-| CORS built-in           | 3rd  | ✅   | ✅    | ✅            |
-| Rate limiter built-in   | 3rd  | 3rd  | ✅    | ✅            |
-| Compression built-in   | 3rd  | ✅   | ✅    | ✅            |
-| CSRF built-in           | 3rd  | ✅   | ✅    | ✅            |
-| Static file server      | 3rd  | ✅   | ✅    | ✅            |
-| OpenTelemetry           | 3rd  | 3rd  | 3rd   | 🔜 (Phase 7) |
-| Prometheus metrics      | 3rd  | 3rd  | 3rd   | 🔜 (Phase 7) |
-| Sonic JSON (SIMD)      | ❌   | ❌   | ❌    | 🔜 (Phase 2) |
-| gRPC-Web bridge         | ❌   | ❌   | ❌    | 🔜 (Phase 9) |
+| Feature | Gin | Echo | Fiber | **Rudra** |
+|---------|-----|------|-------|-----------|
+| Zero-alloc routing | ~ | ~ | ✅ | ✅ |
+| net/http compatibility | ✅ | ✅ | ❌ | ✅ |
+| Struct validation built-in | ❌ | ✅ | ❌ | ✅ |
+| Custom validation rules | ❌ | ✅ | ❌ | ✅ |
+| Multi-format binding | ✅ | ✅ | ✅ | ✅ |
+| Query/Path/Header binding | ✅ | ✅ | ✅ | ✅ |
+| MessagePack | ❌ | ✅ | ❌ | ✅ |
+| Sonic JSON | ❌ | ❌ | ❌ | ✅ |
+| CORS built-in | 3rd | ✅ | ✅ | ✅ |
+| Rate limiter built-in | 3rd | 3rd | ✅ | ✅ |
+| CSRF built-in | 3rd | ✅ | ✅ | ✅ |
+| HTTP/2 native | ~ | ~ | ❌ | 🔜 (Phase 3) |
+| WebSocket built-in | ❌ | ❌ | ✅ | 🔜 (Phase 4) |
+| SSE built-in | ❌ | ❌ | ✅ | 🔜 (Phase 5) |
+| OpenTelemetry | 3rd | 3rd | 3rd | 🔜 (Phase 7) |
 
 ✅ = Complete · 🔜 = Planned · ~ = Partial · 3rd = Third-party required · ❌ = Not available
 
 ---
 
-## Roadmap
-
-See [`ROADMAP.md`](./ROADMAP.md) for the full version-by-version plan from `0.0.1` to `0.9.9`.
-
-| Phase | Versions | Theme | Status |
-|-------|----------|-------|--------|
-| Foundation | 0.0.1–0.0.9 | Engine, router, context, render | ✅ Complete |
-| HTTP/1.1 | 0.1.0–0.1.9 | Full HTTP/1.1 + core middleware | ✅ Complete |
-| Binding | 0.2.0–0.2.9 | Request binding + validation | 📋 Planned |
-| HTTP/2 | 0.3.0–0.3.5 | TLS, h2c, server push | 📋 Planned |
-| WebSocket | 0.4.0–0.4.6 | WS, hub, rooms, compression | 📋 Planned |
-| SSE | 0.5.0–0.5.5 | SSE, heartbeat, reconnect | 📋 Planned |
-| Auth | 0.6.0–0.6.4 | JWT, Basic, API Key | 📋 Planned |
-| Observability | 0.7.0–0.7.5 | Config, logging, tracing, metrics | 📋 Planned |
-| DX + CLI | 0.8.0–0.8.9 | Testing, CLI, templates, docs | 📋 Planned |
-| Launch Prep | 0.9.0–0.9.9 | Hardening, perf, RC1, RC2 | 📋 Planned |
-
----
-
 ## Contributing
 
-All contributions are welcome. Please read [`CONTRIBUTING.md`](./CONTRIBUTING.md) before opening a PR.
+All contributions are welcome. Please read [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 ```bash
 git clone https://github.com/AarambhDevHub/rudra
@@ -443,18 +427,15 @@ go test -bench=. -benchmem ./...
 
 ## Community
 
-- **YouTube**: [Aarambh Dev Hub](https://youtube.com/@AarambhDevHub) — tutorials, deep dives, build-in-public
+- **YouTube**: [Aarambh Dev Hub](https://youtube.com/@AarambhDevHub)
 - **Discord**: [Join the community](https://discord.com/invite/HDth6PfCnp)
 - **GitHub Discussions**: [AarambhDevHub/rudra/discussions](https://github.com/AarambhDevHub/rudra/discussions)
-- **Issues**: [AarambhDevHub/rudra/issues](https://github.com/AarambhDevHub/rudra/issues)
 
 ---
 
 ## Support the Project
 
-If Rudra saves you time, consider supporting Aarambh Dev Hub:
-
-- ⭐ **Star this repository** — it genuinely helps
+- ⭐ **Star this repository**
 - ☕ **Buy Me a Coffee**: [buymeacoffee.com/aarambhdevhub](https://buymeacoffee.com/aarambhdevhub)
 - 💖 **GitHub Sponsors**: [github.com/sponsors/aarambh-darshan](https://github.com/sponsors/aarambh-darshan)
 - 💼 **Hire for Rust/Go work**: [Fiverr](https://fiverr.com/s/XL1ab4G)
@@ -463,7 +444,7 @@ If Rudra saves you time, consider supporting Aarambh Dev Hub:
 
 ## License
 
-Rudra is dual-licensed under **MIT** and **Apache 2.0**. You may choose either license.
+Rudra is dual-licensed under **MIT** and **Apache 2.0**. You may choose either.
 
 - [MIT License](./LICENSE-MIT)
 - [Apache License 2.0](./LICENSE-APACHE)
